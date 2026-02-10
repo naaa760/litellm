@@ -724,12 +724,6 @@ async def delete_model(
                     detail={"error": f"Model with id={model_info.id} not found in db"},
                 )
 
-            await _remove_deleted_model_from_virtual_keys(
-                prisma_client=prisma_client,
-                model_id=model_info.id,
-                model_name=model_params.model_name,
-            )
-
             ## DELETE FROM ROUTER ##
             if llm_router is not None:
                 llm_router.delete_deployment(id=model_info.id)
@@ -814,41 +808,6 @@ async def delete_team_model_alias(
     await asyncio.gather(*tasks)
 
     return removed_model_aliases
-
-
-async def _remove_deleted_model_from_virtual_keys(
-    prisma_client: PrismaClient,
-    model_id: str,
-    model_name: Optional[str],
-) -> None:
-    """
-    Remove a deleted model (by model_id and optionally model_name) from all
-    virtual keys' models arrays in a single bulk UPDATE (O(1) round-trips)
-    instead of one SELECT + one UPDATE per key (O(n)).
-    """
-    ids_to_remove: List[str] = [model_id]
-    if model_name and model_name != model_id:
-        ids_to_remove.append(model_name)
-
-    # Single bulk UPDATE: only touch rows whose models array overlaps with ids_to_remove,
-    # set models to the array with those elements removed. Uses PostgreSQL text[].
-    sql = """
-    UPDATE "LiteLLM_VerificationToken"
-    SET models = (
-        SELECT COALESCE(array_agg(elem), '{}'::text[])
-        FROM unnest(models) AS elem
-        WHERE NOT (elem = ANY($1::text[]))
-    )
-    WHERE models && $2::text[]
-    """
-    try:
-        # Use query_raw (not execute_raw) for parameterized raw SQL - matches rest of codebase
-        await prisma_client.db.query_raw(sql, ids_to_remove, ids_to_remove)
-    except Exception as e:
-        # SQLite or other DBs may not support this PostgreSQL-specific SQL
-        verbose_proxy_logger.debug(
-            "Bulk remove model from virtual keys failed (non-PostgreSQL?): %s", e
-        )
 
 
 #### [BETA] - This is a beta endpoint, format might change based on user feedback. - https://github.com/BerriAI/litellm/issues/964

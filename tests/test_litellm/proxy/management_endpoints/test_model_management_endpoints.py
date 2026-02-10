@@ -20,7 +20,6 @@ from litellm.proxy._types import (
 )
 from litellm.proxy.management_endpoints.model_management_endpoints import (
     ModelManagementAuthChecks,
-    _remove_deleted_model_from_virtual_keys,
     clear_cache,
 )
 from litellm.proxy.utils import PrismaClient
@@ -654,66 +653,3 @@ class TestModelInfoEndpoint:
             assert result["id"] == "team-model-1"
             assert result["object"] == "model" 
             assert result["owned_by"] == "custom"
-
-
-class TestRemoveDeletedModelFromVirtualKeys:
-    """Tests for _remove_deleted_model_from_virtual_keys (single bulk UPDATE)."""
-
-    @pytest.mark.asyncio
-    async def test_calls_query_raw_once_with_model_id_and_name(self):
-        """Should perform one bulk UPDATE with both model_id and model_name in ids_to_remove."""
-        mock_db = MagicMock()
-        mock_db.query_raw = AsyncMock()
-        prisma_client = MagicMock(spec=PrismaClient)
-        prisma_client.db = mock_db
-
-        await _remove_deleted_model_from_virtual_keys(
-            prisma_client=prisma_client,
-            model_id="deleted-model-id",
-            model_name="deleted-model-name",
-        )
-
-        mock_db.query_raw.assert_awaited_once()
-        call_args = mock_db.query_raw.call_args
-        sql = call_args[0][0] if call_args[0] else call_args[1].get("query", "")
-        assert "UPDATE" in sql and "LiteLLM_VerificationToken" in sql
-        assert "models" in sql
-        # ids_to_remove passed twice (for $1 and $2)
-        assert call_args[0][1] == ["deleted-model-id", "deleted-model-name"]
-        assert call_args[0][2] == ["deleted-model-id", "deleted-model-name"]
-
-    @pytest.mark.asyncio
-    async def test_calls_query_raw_with_single_id_when_model_name_equals_id(self):
-        """When model_name equals model_id, ids_to_remove should contain only one element."""
-        mock_db = MagicMock()
-        mock_db.query_raw = AsyncMock()
-        prisma_client = MagicMock(spec=PrismaClient)
-        prisma_client.db = mock_db
-
-        await _remove_deleted_model_from_virtual_keys(
-            prisma_client=prisma_client,
-            model_id="same-id",
-            model_name="same-id",
-        )
-
-        mock_db.query_raw.assert_awaited_once()
-        call_args = mock_db.query_raw.call_args
-        assert call_args[0][1] == ["same-id"]
-        assert call_args[0][2] == ["same-id"]
-
-    @pytest.mark.asyncio
-    async def test_handles_query_raw_failure_gracefully(self):
-        """Non-PostgreSQL or other DB errors should be logged and not raised."""
-        mock_db = MagicMock()
-        mock_db.query_raw = AsyncMock(side_effect=Exception("Unsupported SQL"))
-        prisma_client = MagicMock(spec=PrismaClient)
-        prisma_client.db = mock_db
-
-        # Should not raise
-        await _remove_deleted_model_from_virtual_keys(
-            prisma_client=prisma_client,
-            model_id="id",
-            model_name=None,
-        )
-
-        mock_db.query_raw.assert_awaited_once()
