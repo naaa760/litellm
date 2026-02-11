@@ -162,39 +162,39 @@ async def authenticate_user(  # noqa: PLR0915
 
         # Admin is Authe'd in - generate key for the UI to access Proxy
 
-        # ensure this user is set as the proxy admin, in this route there is no sso, we can assume this user is only the admin
-        await user_update(
-            data=UpdateUserRequest(
-                user_id=key_user_id,
-                user_role=user_role,
-            ),
-            user_api_key_dict=UserAPIKeyAuth(
-                user_role=LitellmUserRoles.PROXY_ADMIN,
-            ),
-        )
-
-        if os.getenv("DATABASE_URL") is not None:
-            response = await generate_key_helper_fn(
-                request_type="key",
-                **{
-                    "user_role": LitellmUserRoles.PROXY_ADMIN,
-                    "duration": "24hr",
-                    "key_max_budget": litellm.max_ui_session_budget,
-                    "models": [],
-                    "aliases": {},
-                    "config": {},
-                    "spend": 0,
-                    "user_id": key_user_id,
-                    "team_id": "litellm-dashboard",
-                },  # type: ignore
-            )
-        else:
+        if os.getenv("DATABASE_URL") is None:
             raise ProxyException(
                 message="No Database connected. Set DATABASE_URL in .env. If set, use `--detailed_debug` to debug issue.",
                 type=ProxyErrorTypes.auth_error,
                 param="DATABASE_URL",
                 code=500,
             )
+
+        if prisma_client is not None:
+            await user_update(
+                data=UpdateUserRequest(
+                    user_id=key_user_id,
+                    user_role=user_role,
+                ),
+                user_api_key_dict=UserAPIKeyAuth(
+                    user_role=LitellmUserRoles.PROXY_ADMIN,
+                ),
+            )
+
+        response = await generate_key_helper_fn(
+            request_type="key",
+            **{
+                "user_role": LitellmUserRoles.PROXY_ADMIN,
+                "duration": "24hr",
+                "key_max_budget": litellm.max_ui_session_budget,
+                "models": [],
+                "aliases": {},
+                "config": {},
+                "spend": 0,
+                "user_id": key_user_id,
+                "team_id": "litellm-dashboard",
+            },  # type: ignore
+        )
 
         key = response["token"]  # type: ignore
 
@@ -259,28 +259,28 @@ async def authenticate_user(  # noqa: PLR0915
         if secrets.compare_digest(
             password.encode("utf-8"), _password.encode("utf-8")
         ) or secrets.compare_digest(hash_password.encode("utf-8"), _password.encode("utf-8")):
-            if os.getenv("DATABASE_URL") is not None:
-                response = await generate_key_helper_fn(
-                    request_type="key",
-                    **{  # type: ignore
-                        "user_role": user_role,
-                        "duration": "24hr",
-                        "key_max_budget": litellm.max_ui_session_budget,
-                        "models": [],
-                        "aliases": {},
-                        "config": {},
-                        "spend": 0,
-                        "user_id": user_id,
-                        "team_id": "litellm-dashboard",
-                    },
-                )
-            else:
+            if os.getenv("DATABASE_URL") is None:
                 raise ProxyException(
                     message="No Database connected. Set DATABASE_URL in .env. If set, use `--detailed_debug` to debug issue.",
                     type=ProxyErrorTypes.auth_error,
                     param="DATABASE_URL",
                     code=500,
                 )
+
+            response = await generate_key_helper_fn(
+                request_type="key",
+                **{  # type: ignore
+                    "user_role": user_role,
+                    "duration": "24hr",
+                    "key_max_budget": litellm.max_ui_session_budget,
+                    "models": [],
+                    "aliases": {},
+                    "config": {},
+                    "spend": 0,
+                    "user_id": user_id,
+                    "team_id": "litellm-dashboard",
+                },
+            )
 
             key = response["token"]  # type: ignore
 
